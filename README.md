@@ -193,16 +193,55 @@ router_settings:
 
 Важно: `num_retries: 4` — это **4 повтора после первой неудачи**, то есть до
 5 запросов к провайдеру. Если нужно ровно 4 обращения — поставьте `num_retries: 3`.
-Ретраи не спасают от ошибок биллинга/авторизации провайдера — только от сетевых
-сбоев, 429 и 5xx.
+Сами ретраи не спасают от ошибок биллинга/авторизации — только от сетевых сбоев,
+429 и 5xx. Но если настроен фолбэк (ниже), он перехватывает и такие ошибки.
 
-Для разных моделей можно добавить фолбэк:
+### Фолбэк на второго провайдера
+
+Если основная модель недоступна (сеть, 5xx, 429, кончился баланс), LiteLLM после
+всех ретраев автоматически переключается на резервную модель — другого провайдера
+или другую модель того же провайдера.
+
+В `config.yaml` добавляется резервная модель и цепочка:
 
 ```yaml
+model_list:
+  - model_name: my-model
+    litellm_params:
+      model: openai/YOUR_MODEL_ID
+      api_base: os.environ/OPENAI_COMPATIBLE_API_BASE
+      api_key: os.environ/OPENAI_COMPATIBLE_API_KEY
+
+  - model_name: my-model-backup
+    litellm_params:
+      model: openai/YOUR_BACKUP_MODEL_ID
+      api_base: os.environ/FALLBACK_API_BASE
+      api_key: os.environ/FALLBACK_API_KEY
+
 router_settings:
   fallbacks:
+    # при ошибке my-model пробуем my-model-backup (можно перечислить несколько)
     - my-model: ["my-model-backup"]
 ```
+
+Провайдеры задаются в `.env`:
+
+```env
+OPENAI_COMPATIBLE_API_BASE=https://api.primary.example.com/v1
+OPENAI_COMPATIBLE_API_KEY=...
+FALLBACK_API_BASE=https://api.backup.example.com/v1
+FALLBACK_API_KEY=...
+```
+
+Как это работает:
+
+1. Запрос идёт к основной модели, при ошибке повторяется `num_retries` раз.
+2. Если все попытки неудачны — берётся первый фолбэк, при его ошибке — следующий.
+3. Фолбэк-модели видны в `/v1/models` как обычные модели; клиенту ничего менять не нужно.
+4. Цепочка не спасает, если недоступны **оба** провайдера, и не отменяет ошибки
+   биллинга — она лишь даёт второй шанс.
+5. Ошибки основной модели + ретраи + фолбэк занимают время: ответ может прийти
+   через 20–30 секунд после сбоя. Это нормально.
 
 ---
 
@@ -321,6 +360,7 @@ gunzip -c backups/litellm-YYYYmmdd-HHMMSS.sql.gz \
 | Контейнер `litellm` перезапускается | `docker compose logs litellm` — чаще всего битый `config.yaml` или не задан `LITELLM_SALT_KEY`. |
 | `database ... does not exist` | Проверьте `POSTGRES_DB`/`POSTGRES_USER` и что postgres healthy. |
 | Долгие ответы обрываются | Увеличьте `request_timeout` в `config.yaml`. |
+| Ответ приходит через 20–30 с | Основная модель падает, сработали ретраи и фолбэк — смотрите `docker compose logs litellm`. |
 
 ---
 

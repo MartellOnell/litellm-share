@@ -19,6 +19,14 @@ model_list:
       api_base: os.environ/OPENAI_COMPATIBLE_API_BASE
       api_key: os.environ/OPENAI_COMPATIBLE_API_KEY
 
+  # ── Фолбэк: другой провайдер (или другая модель) ──
+  # Используется автоматически, если основная модель отдаёт ошибку.
+  - model_name: my-model-backup
+    litellm_params:
+      model: openai/YOUR_BACKUP_MODEL_ID
+      api_base: os.environ/FALLBACK_API_BASE
+      api_key: os.environ/FALLBACK_API_KEY
+
 litellm_settings:
   # Сколько раз повторять запрос при ошибке провайдера.
   # num_retries=4 → всего до 5 попыток (1 + 4 ретрая).
@@ -36,9 +44,11 @@ router_settings:
   # Сколько ошибок допускается до временного отключения модели (cooldown).
   allowed_fails: 4
   cooldown_time: 30
-  # Фолбэк на другую модель, если основная недоступна (опционально).
-  # fallbacks:
-  #   - my-model: ["my-model-backup"]
+  # Фолбэк на другую модель/провайдера, если основная недоступна.
+  # Цепочка: сначала my-model-backup, затем (если добавите) следующий.
+  fallbacks:
+    - my-model: ["my-model-backup"]
+    - my-model-chat: ["my-model-backup"]
 
 general_settings:
   # Модели хранятся в БД и редактируются из UI.
