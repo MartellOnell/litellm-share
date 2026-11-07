@@ -1,0 +1,64 @@
+name: litellm
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-litellm}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_DB: ${POSTGRES_DB:-litellm}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -U ${POSTGRES_USER:-litellm} -d ${POSTGRES_DB:-litellm}
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    mem_limit: ${PG_MEM_LIMIT:-512m}
+    cpus: ${PG_CPUS:-0.5}
+
+  litellm:
+    image: ${LITELLM_IMAGE:-ghcr.io/berriai/litellm:main-latest}
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "${LITELLM_BIND:-0.0.0.0}:${LITELLM_PORT:-4000}:4000"
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-litellm}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-litellm}
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:?LITELLM_MASTER_KEY is required}
+      LITELLM_SALT_KEY: ${LITELLM_SALT_KEY:?LITELLM_SALT_KEY is required}
+      UI_USERNAME: ${UI_USERNAME:-admin}
+      UI_PASSWORD: ${UI_PASSWORD:?UI_PASSWORD is required}
+      STORE_MODEL_IN_DB: "True"
+      LITELLM_LOG: INFO
+    volumes:
+      - ./config.yaml:/app/config.yaml:ro
+    command:
+      - --config
+      - /app/config.yaml
+      - --port
+      - "4000"
+      - --num_workers
+      - "${LITELLM_WORKERS:-2}"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request;urllib.request.urlopen('http://127.0.0.1:4000/health/liveliness', timeout=5)"
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 90s
+    mem_limit: ${LITELLM_MEM_LIMIT:-2g}
+    cpus: ${LITELLM_CPUS:-1.5}
+
+volumes:
+  pgdata:
